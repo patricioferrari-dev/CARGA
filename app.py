@@ -2,24 +2,23 @@ import streamlit as st
 import pandas as pd
 import io
 
-# Configuración ancha de página
-st.set_page_config(page_title="Conversor Total Getel", layout="wide")
+# Configuración de página ancha
+st.set_page_config(page_title="Matriz de Stock", layout="wide")
 
-st.title("📊 Matriz de Stock Completa")
-st.markdown("Subí el archivo y descargá el Excel con todos los inventarios en columnas.")
+st.title("📊 Procesador de Inventario Total")
+st.markdown("Subí el archivo TXT para generar la matriz completa automáticamente.")
 
-# 1. Subida de archivo
 archivo_subido = st.file_uploader("Subir Cloud_Report.txt", type=['txt'])
 
 if archivo_subido:
     try:
-        # 2. Procesamiento
+        # 1. Leer archivo
         df = pd.read_csv(archivo_subido, sep=';', encoding='latin-1')
         df.columns = [c.strip() for c in df.columns]
         df['STOCK'] = pd.to_numeric(df['STOCK'], errors='coerce').fillna(0)
 
-        # 3. Crear Matriz Horizontal (Pivot)
-        # Esto genera una columna por cada sub-inventario automáticamente
+        # 2. CREAR MATRIZ AUTOMÁTICA (Sin selectores)
+        # Esto pone los Códigos a la izquierda y cada Técnico en una columna diferente de forma automática
         matriz = df.pivot_table(
             index=['ITEM', 'DESCRIPCION_ITEM'], 
             columns='LOC_DESCRIPTION', 
@@ -27,24 +26,26 @@ if archivo_subido:
             aggfunc='sum'
         ).fillna(0).reset_index()
 
-        st.success(f"✅ Procesados {len(matriz.columns) - 2} inventarios correctamente.")
+        st.success(f"✅ Se han organizado {len(matriz.columns) - 2} columnas de inventario.")
         
-        # 4. Vista previa
+        # 3. Vista previa de la tabla
         st.dataframe(matriz, use_container_width=True, hide_index=True)
 
-        # 5. Generar Excel
+        # 4. Generar Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             matriz.to_excel(writer, index=False, sheet_name='Stock_General')
         
-        # 6. Botón de descarga
+        # 5. Botón de descarga
         st.download_button(
             label="📥 DESCARGAR EXCEL COMPLETO",
             data=output.getvalue(),
-            file_name="Reporte_General_Stock.xlsx",
+            file_name="Matriz_Stock_Completa.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error al procesar: {e}")
+else:
+    st.info("Esperando archivo TXT...")
