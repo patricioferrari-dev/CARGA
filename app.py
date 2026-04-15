@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 import io
+from openpyxl.utils import get_column_letter # Importación correcta
 
 st.set_page_config(page_title="Control de Stock Crítico", layout="wide")
 
 st.title("📊 Control de Stock con Alerta de Mínimos")
-st.markdown("Los valores que estén por debajo del **Stock Ideal** se marcarán en rojo en el Excel.")
 
-# 1. Diccionario de Stock Mínimo (Tus datos fijos)
+# 1. Diccionario de Stock Mínimo (Datos Fijos)
+# Nota: He normalizado los códigos para que coincidan con el formato del TXT
 STOCK_IDEAL = {
     '13008': 18, '30032': 350, '31025': 150, '31026': 30, '31027': 30,
     '31154': 10, '32085': 20, '32098': 2, '35042': 20, '51044': 18,
@@ -24,7 +25,9 @@ if archivo_subido:
         df = pd.read_csv(archivo_subido, sep=';', encoding='latin-1')
         df.columns = df.columns.str.strip()
         df['STOCK'] = pd.to_numeric(df['STOCK'], errors='coerce').fillna(0)
-        df['ITEM'] = df['ITEM'].astype(str).str.strip()
+        
+        # Limpieza profunda de la columna ITEM para que coincida con el diccionario
+        df['ITEM'] = df['ITEM'].astype(str).str.strip().str.lstrip('0')
 
         # 3. Crear Matriz
         matriz = df.pivot_table(
@@ -34,14 +37,14 @@ if archivo_subido:
             aggfunc='sum'
         ).fillna(0).reset_index()
 
-        # 4. Insertar columna de "Stock Ideal" al principio para comparar
-        # Convertimos las llaves del diccionario a strings para comparar bien
-        matriz.insert(2, 'STOCK_IDEAL', matriz['ITEM'].map(STOCK_IDEAL).fillna(0))
+        # 4. Insertar columna de "STOCK OBJETIVO" en la posición 2
+        # Buscamos cada ITEM en nuestro diccionario de Stock Ideal
+        matriz.insert(2, 'STOCK_OBJETIVO', matriz['ITEM'].map(STOCK_IDEAL).fillna(0))
 
-        st.success("✅ Matriz generada. Los técnicos con stock bajo se marcarán en el Excel.")
-        st.dataframe(matriz, use_container_width=True)
+        st.success("✅ Matriz generada con alertas de stock bajo.")
+        st.dataframe(matriz, use_container_width=True, hide_index=True)
 
-        # 5. Generar Excel con Formato Condicional
+        # 5. Generar Excel con Formato Condicional (usando XlsxWriter)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             matriz.to_excel(writer, index=False, sheet_name='Control_Stock')
@@ -49,27 +52,33 @@ if archivo_subido:
             workbook  = writer.book
             worksheet = writer.sheets['Control_Stock']
 
-            # Definir el formato rojo
+            # Formato para las celdas en rojo
             format_rojo = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
 
-            # Aplicar formato condicional a todas las columnas de técnicos
-            # Empezamos desde la columna D (índice 3) hasta el final
             num_filas = len(matriz)
             num_cols = len(matriz.columns)
             
+            # Aplicamos la regla desde la 4ta columna (donde empiezan los técnicos)
             for col_num in range(3, num_cols):
-                # La regla es: SI el valor de la celda es MENOR que el valor en STOCK_IDEAL (Columna C)
-                # Excel usa notación A1, así que Columna C es $C2
+                letra_col_tecnico = get_column_letter(col_num + 1)
+                # Comparación: SI Celda Técnico < Celda STOCK_OBJETIVO (Columna C)
+                # La fila empieza en 2 en Excel
+                criterio = f'={letra_col_tecnico}2 < $C2'
+                
                 worksheet.conditional_format(1, col_num, num_filas, col_num, {
                     'type':     'formula',
-                    'criteria': f'={pd.io.formats.excel.get_column_letter(col_num + 1)}2 < $C2',
+                    'criteria': criterio,
                     'format':   format_rojo
                 })
+            
+            # Ajuste de ancho de columnas
+            for i, col in enumerate(matriz.columns):
+                worksheet.set_column(i, i, max(len(str(col)), 12))
 
         st.download_button(
-            label="📥 DESCARGAR EXCEL CON ALERTAS ROJAS",
+            label="📥 DESCARGAR EXCEL CON ALERTAS",
             data=output.getvalue(),
-            file_name="Stock_Alertas.xlsx",
+            file_name="Stock_Alertas_Getel.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
