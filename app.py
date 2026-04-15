@@ -2,64 +2,62 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="Procesador de Stock", layout="wide")
+st.set_page_config(page_title="Procesador Matrix Getel", page_icon="📊", layout="wide")
 
-st.title("📊 Procesador de Inventario")
-st.markdown("Subí el archivo `.txt` para generar el formato Excel personalizado.")
+st.title("📊 Reporte de Stock por Sub-Inventario")
+st.markdown("Este procesador organiza los códigos verticalmente y los sub-inventarios horizontalmente.")
 
-# 1. Subida de archivo
-archivo_subido = st.file_uploader("Seleccioná el archivo TXT", type=['txt'])
+archivo_subido = st.file_uploader("Subir Cloud_Report (TXT)", type=['txt'])
 
-if archivo_subido is not None:
+if archivo_subido:
     try:
-        # 2. Lectura del archivo (usando ; como separador según tu ejemplo)
+        # 1. Leer el archivo
         df = pd.read_csv(archivo_subido, sep=';', encoding='latin-1')
-        
-        # Limpieza básica de nombres de columnas
         df.columns = [c.strip() for c in df.columns]
 
-        st.success("Archivo cargado correctamente")
-
-        # 3. Reglas de Negocio / Filtros
-        st.subheader("Configuración del Reporte")
+        # 2. Crear la Matriz (Pivot Table)
+        # Filas: Código y Descripción
+        # Columnas: LOC_DESCRIPTION (Técnicos/Sub-inventarios)
+        # Valores: STOCK
         
-        # Filtro por Técnico (Columna LOC_DESCRIPTION en tu archivo)
-        tecnicos = df['LOC_DESCRIPTION'].unique().tolist()
-        tecnico_sel = st.selectbox("Seleccioná el Técnico para el reporte:", tecnicos)
-
-        # Aplicar filtro
-        df_filtrado = df[df['LOC_DESCRIPTION'] == tecnico_sel].copy()
-
-        # Seleccionamos y ordenamos las columnas como en tu imagen
-        # (Ajusté los nombres según el encabezado de tu .txt)
-        columnas_finales = {
-            'ITEM': 'Código',
-            'DESCRIPCION_ITEM': 'Descripción del Artículo',
-            'STOCK': 'Cantidad Stock',
-            'DISPO': 'Disponible'
-        }
+        # Primero limpiamos los datos para evitar errores
+        df['STOCK'] = pd.to_numeric(df['STOCK'], errors='coerce').fillna(0)
         
-        df_final = df_filtrado[list(columnas_finales.keys())].rename(columns=columnas_finales)
+        matriz_stock = df.pivot_table(
+            index=['ITEM', 'DESCRIPCION_ITEM'], 
+            columns='LOC_DESCRIPTION', 
+            values='STOCK', 
+            aggfunc='sum'
+        ).fillna(0) # Rellenamos con 0 donde un técnico no tiene ese material
 
-        # 4. Mostrar vista previa
-        st.write(f"Vista previa para: **{tecnico_sel}**")
-        st.dataframe(df_final, use_container_width=True)
+        # Resetear el índice para que ITEM y DESCRIPCION sean columnas normales
+        matriz_final = matriz_stock.reset_index()
 
-        # 5. Generar Excel
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df_final.to_excel(writer, index=False, sheet_name='Stock_Tecnico')
-        
+        # 3. Mostrar Vista Previa
+        st.write("### Vista previa del Excel:")
+        st.dataframe(matriz_final, use_container_width=True)
+
+        # 4. Generar el Excel
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            matriz_final.to_excel(writer, index=False, sheet_name='Reporte_General')
+            
+            # Auto-ajuste de columnas básico
+            worksheet = writer.sheets['Reporte_General']
+            for i, col in enumerate(matriz_final.columns):
+                column_len = max(matriz_final[col].astype(str).map(len).max(), len(col)) + 2
+                worksheet.column_dimensions[chr(65 + i)].width = column_len
+
+        # 5. Descarga
         st.download_button(
-            label="📥 Descargar Excel Ordenado",
-            data=buffer.getvalue(),
-            file_name=f"Stock_{tecnico_sel.replace(' ', '_')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            label="📥 Descargar Excel Matriz de Stock",
+            data=output.getvalue(),
+            file_name="Reporte_General_Stock.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
         )
 
     except Exception as e:
-        st.error(f"Error al procesar el archivo: {e}")
-        st.info("Asegurate de que el archivo use ';' como separador.")
-
+        st.error(f"Hubo un error al procesar la matriz: {e}")
 else:
-    st.info("Esperando archivo... Por favor, subí el reporte Cloud_Report.")
+    st.info("Subí el archivo para generar la tabla comparativa.")
