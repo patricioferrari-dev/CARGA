@@ -2,31 +2,27 @@ import streamlit as st
 import pandas as pd
 import io
 
-# Configuración de la página para que use todo el ancho
-st.set_page_config(page_title="Conversor Stock Getel", page_icon="📈", layout="wide")
+# Configuración ancha para ver mejor la tabla grande
+st.set_page_config(page_title="Procesador Total Getel", page_icon="📈", layout="wide")
 
 st.title("📈 Conversor Automático de Stock")
-st.markdown("Subí tu archivo `.txt` y obtené la matriz completa de sub-inventarios en Excel.")
+st.markdown("Subí tu archivo `.txt` y obtené el Excel con **todos** los sub-inventarios organizados por columnas.")
 
-# 1. Zona de subida de archivo
+# 1. Zona de subida
 archivo_subido = st.file_uploader("Arrastrá aquí el archivo Cloud_Report.txt", type=['txt'])
 
 if archivo_subido:
     try:
-        with st.spinner("Procesando matriz de stock..."):
-            # 2. Leer el archivo TXT (Separador punto y coma)
+        with st.spinner("Procesando matriz completa..."):
+            # 2. Leer archivo con codificación correcta
             df = pd.read_csv(archivo_subido, sep=';', encoding='latin-1')
-            
-            # Limpiar nombres de columnas
             df.columns = [c.strip() for c in df.columns]
 
-            # Convertir Stock a número por seguridad
+            # 3. Limpiar datos de stock
             df['STOCK'] = pd.to_numeric(df['STOCK'], errors='coerce').fillna(0)
 
-            # 3. CREAR LA MATRIZ AUTOMÁTICA
-            # Filas: Código (ITEM) y Descripción
-            # Columnas: El técnico o depósito (LOC_DESCRIPTION)
-            # Valores: La cantidad (STOCK)
+            # 4. CREAR LA MATRIZ TOTAL (PIVOT)
+            # Esto pone los códigos a la izquierda y CADA técnico en una columna nueva
             matriz = df.pivot_table(
                 index=['ITEM', 'DESCRIPCION_ITEM'], 
                 columns='LOC_DESCRIPTION', 
@@ -34,40 +30,36 @@ if archivo_subido:
                 aggfunc='sum'
             ).fillna(0)
 
-            # Ordenar por Código para que sea fácil de buscar
-            matriz = matriz.reset_index()
+            # Convertimos el índice en columnas normales
+            matriz_final = matriz.reset_index()
 
-            # 4. Mostrar resultado en pantalla
-            st.success("✅ ¡Matriz generada con éxito!")
-            st.dataframe(matriz, use_container_width=True, hide_index=True)
+            # 5. Mostrar éxito y vista previa
+            st.success(f"✅ Se procesaron {len(matriz_final.columns) - 2} técnicos/depósitos.")
+            st.dataframe(matriz_final, use_container_width=True, hide_index=True)
 
-            # 5. Generar el Excel en memoria
+            # 6. Crear el Excel
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                matriz.to_excel(writer, index=False, sheet_name='Stock_General')
+                matriz_final.to_excel(writer, index=False, sheet_name='Stock_General')
                 
-                # Ajuste automático de columnas en el Excel
+                # Ajuste de columnas para que no queden apretadas
                 worksheet = writer.sheets['Stock_General']
-                for i, col in enumerate(matriz.columns):
-                    # Calculamos el ancho ideal basado en el texto más largo de la columna
-                    max_len = max(matriz[col].astype(str).map(len).max(), len(col)) + 3
-                    # Limitamos el ancho para que no sea excesivo (máximo 50)
-                    column_width = min(max_len, 50)
-                    # Convertimos el índice de columna a letra (A, B, C...)
-                    col_letter = chr(65 + (i if i < 26 else 0)) # Manejo básico para A-Z
+                for i, col in enumerate(matriz_final.columns):
+                    column_width = max(len(str(col)), 12) + 2
+                    # Usamos una forma segura de obtener la letra de la columna (A, B, C...)
+                    col_letter = pd.io.formats.excel.get_column_letter(i + 1)
                     worksheet.column_dimensions[col_letter].width = column_width
 
-            # 6. Botón de descarga automática
+            # 7. BOTÓN ÚNICO DE DESCARGA
             st.download_button(
-                label="📥 DESCARGAR EXCEL COMPLETO",
+                label="📥 DESCARGAR EXCEL CON TODOS LOS TÉCNICOS",
                 data=output.getvalue(),
-                file_name="Reporte_Stock_Getel_Procesado.xlsx",
+                file_name="Reporte_General_Stock.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 
     except Exception as e:
-        st.error(f"Error técnico: {e}")
-        st.info("Asegurate de que el archivo sea el TXT original de Getel (separado por ';').")
+        st.error(f"Error al procesar: {e}")
 else:
-    st.info("Esperando el archivo Cloud_Report para procesar...")
+    st.info("Esperando archivo TXT...")
